@@ -1,17 +1,17 @@
 typedict(x) = Dict{Symbol, Any}(
-    fn=>fieldtosave(getfield(x, fn)) for fn in fieldnames(typeof(x))
+    fn=>getfield(x, fn) for fn in fieldnames(typeof(x))
 )
 
-inputdict(x) = push!(typedict(x), :type => string(typeof(x)))
-
-fieldtosave(x) = x
-fieldtosave(quiescence::AbstractQuiescence) = inputdict(quiescence)
-
-
 function saveinput(input, filename)
-    filename = filename[end-4:end] == ".json" ? filename : filename * ".json"
-    inputdict = typedict(input)
+    filename = endswith(filename, ".json") ? filename : filename * ".json"
     open(filename, "w") do io
-        JSON.print(io, inputdict, 4)
+        JSON.print(io, typedict(input), 4)
     end
+end
+
+function loadinput(::Type{InputType}, filename) where InputType <: SimulationInput
+    filename = endswith(filename, ".json") ? filename : filename * ".json"
+    d = JSON.parsefile(filename)
+    kwargs = Dict(Symbol(k) => v for (k, v) in d)
+    return InputType(; kwargs...)
 end

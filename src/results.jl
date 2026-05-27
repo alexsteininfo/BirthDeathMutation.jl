@@ -10,46 +10,11 @@ struct Simulation{S<:SimulationInput, T<:AbstractPopulation} <: SimulationResult
     output::T
 end
 
-const MultiSimulation = Simulation{S, T} where {S<:MultilevelInput, T<:Union{Population, PopulationWithQuiescence}}
+get_simulation(sim::Simulation) = sim
 
-Base.length(multisim::MultiSimulation) = length(multisim.output)
-Base.iterate(multisim::MultiSimulation) = iterate(multisim.output)
-Base.iterate(multisim::MultiSimulation, state) = iterate(multisim.output, state)
-Base.getindex(multisim::MultiSimulation, i) = getindex(multisim.output, i)
-Base.setindex(multisim::MultiSimulation, v, i) = getindex(multisim.output, v, i)
-Base.firstindex(multisim::MultiSimulation) = firstindex(multisim.output)
-Base.lastindex(multisim::MultiSimulation) = lastindex(multisim.output)
-
-get_simulation(multsim, i) = return Simulation(multsim.input, multsim.output[i])
-
-abstract type AbstractVAFResult end
-struct VAFResult <: AbstractVAFResult
-    read_depth::Float64
-    cellularity::Float64
-    detectionlimit::Float64
-    trueVAF::Vector{Float64}
-    sampledVAF::Vector{Float64}
-    subclonefreq::Vector{Float64}
-end
-
-struct VAFResultMulti <: AbstractVAFResult
-    read_depth::Float64
-    cellularity::Float64
-    detectionlimit::Float64
-    trueVAFs::Vector{Vector{Float64}}
-    sampledVAFs::Vector{Vector{Float64}}
-    subclonefreqs::Vector{Vector{Float64}}
-end
-
-"""
-    show(io::IO, simulation::Simulation)
-
-Print out summary of simulation.
-"""
 function Base.show(io::IO, simulation::SimulationResult)
     @printf(io, "===================================================================\n")
     show(io, simulation.input)
-    # @printf(io, "\n")
     @printf(io, "===================================================================\n")
     show(io, simulation.output)
     @printf(io, "\n===================================================================")

@@ -1,96 +1,91 @@
-# SomaticEvolution
+# BirthDeathMutation
 
-[![Build Status](https://github.com/jessierenton/SomaticEvolution.jl/actions/workflows/CI.yml/badge.svg?branch=main)](https://github.com/jessierenton/SomaticEvolution.jl/actions/workflows/CI.yml?query=branch%3Amain)
-[![Coverage](https://codecov.io/gh/jessierenton/SomaticEvolution.jl/branch/main/graph/badge.svg)](https://codecov.io/gh/jessierenton/SomaticEvolution.jl)
+Julia package for simulating single-population somatic evolution with full lineage tracking.
 
-Julia package to simulate single level or multilevel somatic evolution. 
+This project started from [SomaticEvolution.jl](https://github.com/jessierenton/SomaticEvolution.jl) but has been substantially simplified: multilevel (multi-module) dynamics have been removed, only `SimpleTreeCell` (tree-based lineage tracking) is supported, and the package has been renamed to reflect a single birth-death-mutation population focus.
 
 ## Installation
-To add package to a Julia session run 
-```
+
+```julia
 using Pkg
-Pkg.add("https://github.com/jessierenton/SomaticEvolution.jl")
+Pkg.add(url="https://github.com/alexanderstein/BirthDeathMutation")
 ```
-## Simulation
 
-Simulations are run using the `runsimulation`, `runsimulation_timeseries` or 
-`runsimulation_timeseries_returnfinalpop` functions.
+## How it works
 
-To run a simulation an input must be created. Different input types correspond to different 
-simulations (see `?SimulationInput` for options). Keyword arguments for each input type and 
-default values can be found in the docs for each input type, e.g. see `?BranchingInput` or 
-`?MultilevelInput`. 
+Simulations are run using `runsimulation`, `runsimulation_timeseries`, or
+`runsimulation_timeseries_returnfinalpop`.
 
-By default selection is neutral (i.e. all cells have the 
-same fitness). Other selection regimes can be specified by passing an explicit 
-`selection::AbstractSelection` argument to `runsimulation`. This can be of type 
-`NeutralSelection` (default), `SelectionPredefined` or `SelectionDistribution`.
-- `SelectionPredefined` allows you to define (approximate) times and fitnesses for new 
-  mutations
-- `SelectionDistribution` allows you to define a probability for fit mutations to 
-  occur allong with a fitness distribution.
+First create an input that defines the population dynamics:
 
-Note that simulations with selection may need further testing.
+| Input type | Description |
+|---|---|
+| `BranchingInput` | Branching process from a single cell until `Nmax` cells |
+| `MoranInput` | Moran process starting from `N` identical cells |
+| `BranchingMoranInput` | Branching process to `Nmax`, then switches to Moran |
 
-## Examples 
+All input types share common parameters: `μ` (mutation rate per division), `mutationdist`
+(`:poisson`, `:fixed`, `:poissontimedep`, `:fixedtimedep`, `:geometric`),
+`clonalmutations`, and `ploidy`.
 
-- To run a single level branching process simulation, starting from a single cell, until it
-  reaches 100 cells: 
-  ```   
-  using SomaticEvolution, Random
+By default selection is neutral. Other regimes can be specified with an `AbstractSelection`
+argument:
+- `NeutralSelection()` — default, all cells identical fitness
+- `SelectionPredefined(mutant_selection, mutant_time)` — fit mutants at specified times
+- `SelectionDistribution(dist, probability, max_subclones)` — fit mutants arise
+  stochastically with selection coefficients drawn from `dist`
 
-  input = BranchingInput(Nmax=100)
-  rng = Random.seed!(12)
-  simulation = runsimulation(input, rng)
-  ```
+## Cell representation
 
-- To run a multilevel simulation that starts from a single cell in a single module, grows to 
-  a population of 10 modules and then remains in homeostasis:
+Cells are stored as `BinaryNode{SimpleTreeCell}` nodes. Full ancestry is preserved
+throughout the simulation as a binary tree, so any pair of cells can be traced to their
+MRCA. Each cell stores the *number* of mutations acquired since its parent divided (not
+individual mutation IDs).
 
-  ```
-  using SomaticEvolution, Random
+## Examples
 
-  input = MultilevelBranchingMoranInput(maxmodules=100)
-  rng = Random.seed!(12)
-  simulation = runsimulation(input, rng)
-  ```
+Branching process from a single cell until 100 cells:
+```julia
+using BirthDeathMutation, Random
 
-- To run a multilevel simulation as above, with new fit mutants occuring at cell division 
-  with probability 0.1 with selection coefficients drawn from an Exponential distribution
-  with mean 0.2 (maximum of 50 fit mutants):
+input = BranchingInput(Nmax=100)
+rng = Random.seed!(12)
+simulation = runsimulation(input, rng)
+```
 
-  ```
-  using SomaticEvolution, Random
+Moran process with selection:
+```julia
+using BirthDeathMutation, Random, Distributions
 
-  input = MultilevelBranchingMoranInput(maxmodules=100)
-  selection = SelectionDistribution(Exponential(0.2), 0.2, 50)
-  rng = Random.seed!(12)
-  simulation = runsimulation(input, selection, rng)
-  ```
+input = MoranInput(N=500, tmax=20.0)
+selection = SelectionDistribution(Exponential(0.2), 0.1, 10)
+rng = Random.seed!(42)
+simulation = runsimulation(input, selection, rng)
+```
 
-## Implementations
+Branching process recording population state at multiple timepoints:
+```julia
+using BirthDeathMutation, Random
 
-The "cell" implementation relies on storing lists of mutations for each cell, with each
-cell having a unique id. The "tree" implementation is usually faster, and stores cells
-within a tree structure so full ancestory is preserved throughout the simulation. The number
-unique mutations for each cell is stored, rather than each mutation individually. To choose 
-which implementation is used, the cell type can be passed to runsimulation as the first argument.
+input = BranchingInput(Nmax=1000)
+rng = Random.seed!(1)
+timesteps = 1.0:1.0:10.0
+data = runsimulation_timeseries(input, timesteps, average_mutations, rng)
+```
 
-- `runsimulation(Cell, input, rng)`
-- `runsimulation(SimpleTreeCell, input, rng)`: tree-structured cells, dead cells are
-  removed from tree.
-- `runsimulation(TreeCell, input, rng)`: tree-structured cells, dead cells stay in tree and
-  have an additional `alive` field.
+## Analysis functions
+
+- `mutations_per_cell(simulation)` — mutations per alive cell (summed along lineage)
+- `average_mutations(simulation)` — mean mutations across all alive cells
+- `clonal_mutations(simulation)` — mutations shared by every alive cell (at MRCA)
+- `pairwise_differences(simulation)` — pairwise distance frequency dict
+- `pairwisedistances(simulation)` — raw vector of pairwise distances
+- `coalescence_times(root)` — time-to-MRCA for every pair of alive cells
+- `time_to_MRCA(node1, node2, t)` — time since MRCA of two specific cells
 
 ## Customisation
 
-Custom simulations can be implemented by defining new `SimulationInput` and/or 
-`AbstractSelection` subtypes. This would require defining new `simulate!` and 
-`initialize_population` methods that dispatch on the new input/selection types. See source 
-code for examples of how these can be implemented.
-
-## Spatial modelling
-
-The second optional argument of `runsimulation` is a type `S<:ModuleStructure` that defaults 
-to `WellMixed`. Other types could be implemented to enable spatial arrangement of cells 
-within the module.
+New simulation dynamics can be added by defining new `SimulationInput` subtypes and
+corresponding `simulate!` and `initialize_population` methods. New selection regimes can
+be added by defining new `AbstractSelection` subtypes. See the existing implementations
+in `src/` for examples.
