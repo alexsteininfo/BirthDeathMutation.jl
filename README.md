@@ -2,7 +2,7 @@
 
 Julia package for simulating single-population somatic evolution with full lineage tracking.
 
-This project started from [SomaticEvolution.jl](https://github.com/jessierenton/SomaticEvolution.jl) but has been substantially simplified: multilevel (multi-module) dynamics have been removed, only `SimpleTreeCell` (tree-based lineage tracking) is supported, and the package has been renamed to reflect a single birth-death-mutation population focus.
+This project started from [SomaticEvolution.jl](https://github.com/jessierenton/SomaticEvolution.jl) but has been substantially modified: multilevel (multi-module) dynamics have been removed, only `SimpleTreeCell` (tree-based lineage tracking) is supported, and the package has been renamed to reflect a single birth-death-mutation population focus.
 
 ## Installation
 
