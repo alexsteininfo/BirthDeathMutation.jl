@@ -1,294 +1,155 @@
 """
-    simulate!(population, input, selection, nextID, rng::AbstractRNG=Random.GLOBAL_RNG;
-        timefunc=exptime, t0=nothing, tmax=nothing)
+    simulate!(population, block::BirthDeathBlock, rng) -> Population
+    simulate!(population, block::MoranBlock,       rng) -> Population
 
-Run a simulation defined by `input` and `selection`, starting from `population`.
+Run a simulation block on `population`, extending its tree in-place. Returns the
+same `population` so blocks can be chained:
+
+```julia
+pop = simulate!(pop, block1, rng)
+pop = simulate!(pop, block2, rng)
+```
 """
 function simulate! end
 
 function simulate!(
     population::Population,
-    input::BranchingMoranInput,
-    selection::AbstractSelection,
-    nextID::Integer,
-    rng::AbstractRNG=Random.GLOBAL_RNG;
-    timefunc=exptime,
-    t0=nothing,
-    tmax=nothing
+    block::BirthDeathBlock,
+    rng::AbstractRNG=Random.GLOBAL_RNG
 )
-    population, nextID = branchingprocess!(
-        population,
-        selection,
-        input.Nmax,
-        input.μ,
-        input.mutationdist,
-        isnothing(tmax) ? input.tmax : minimum((tmax, input.tmax)),
-        nextID,
-        rng;
-        timefunc,
-        t0
-    )
-    population, nextID = moranprocess!(
-        population,
-        selection,
-        input.μ,
-        input.mutationdist,
-        isnothing(tmax) ? input.tmax : minimum((tmax, input.tmax)),
-        nextID,
-        rng;
-        timefunc,
-        t0,
-        moranincludeself=input.moranincludeself
-    )
-    final_timedep_mutations!(population, input.μ, input.mutationdist, rng; tend=input.tmax)
-    return population, nextID
+    if block.restart_on_extinction
+        initial_cells     = deepcopy(population.cells)
+        initial_t         = population.t
+        initial_subclones = deepcopy(population.subclones)
+    end
+
+    while true
+        t                 = age(population)
+        N                 = length(allcells(population))
+        nextID            = getnextID(population)
+        nsubclones        = getmaxsubclones(block.selection)
+        nsubclonescurrent = length(population.subclones)
+
+        while !block.stopfunction(population) && N > 0
+            Rmax = maximum(
+                block.birthrate(sc.s, N) + block.deathrate(sc.s, N)
+                for sc in population.subclones
+            )
+            Δt = exptime(rng) / (Rmax * N)
+            t += Δt
+            population, N, nextID, nsubclonescurrent = _branchingupdate!(
+                population, block, Rmax, N, nextID, nsubclonescurrent, nsubclones, t, rng
+            )
+        end
+
+        if N == 0 && block.restart_on_extinction
+            population.cells     = deepcopy(initial_cells)
+            population.t         = initial_t
+            population.subclones = deepcopy(initial_subclones)
+        else
+            break
+        end
+    end
+    return population
 end
 
 function simulate!(
     population::Population,
-    input::BranchingInput,
-    selection::AbstractSelection,
-    nextID::Integer,
-    rng::AbstractRNG=Random.GLOBAL_RNG;
-    timefunc=exptime,
-    t0=nothing,
-    tmax=nothing
+    block::MoranBlock,
+    rng::AbstractRNG=Random.GLOBAL_RNG
 )
-    population, nextID = branchingprocess!(
-        population,
-        selection,
-        input.Nmax,
-        input.μ,
-        input.mutationdist,
-        isnothing(tmax) ? input.tmax : minimum((tmax, input.tmax)),
-        nextID,
-        rng;
-        timefunc,
-        t0
-    )
-    final_timedep_mutations!(population, input.μ, input.mutationdist, rng; tend=input.tmax)
-    return population, nextID
-end
-
-function simulate!(
-    population::Population,
-    input::MoranInput,
-    selection::AbstractSelection,
-    nextID::Integer,
-    rng::AbstractRNG=Random.GLOBAL_RNG;
-    timefunc=exptime,
-    t0=nothing,
-    tmax=nothing
-)
-    population, nextID = moranprocess!(
-        population,
-        selection,
-        input.μ,
-        input.mutationdist,
-        isnothing(tmax) ? input.tmax : minimum((tmax, input.tmax)),
-        nextID,
-        rng;
-        timefunc,
-        t0,
-        moranincludeself=input.moranincludeself
-    )
-    final_timedep_mutations!(population, input.μ, input.mutationdist, rng; tend=input.tmax)
-    return population, nextID
-end
-
-"""
-    branchingprocess!(population, selection, Nmax, μ, mutationdist, tmax, nextID, rng;
-        timefunc=exptime, t0=nothing)
-
-Run a stochastic branching process on `population` until it reaches `Nmax` cells or `tmax`.
-"""
-function branchingprocess!(
-    population::Population,
-    selection::AbstractSelection,
-    Nmax,
-    μ,
-    mutationdist,
-    tmax,
-    nextID,
-    rng::AbstractRNG;
-    timefunc=exptime,
-    t0=nothing
-)
-    t = !isnothing(t0) ? t0 : age(population)
     N = length(allcells(population))
-
-    nsubclones = getmaxsubclones(selection)
+    N == block.N || error(
+        "Population size $N does not match MoranBlock.N = $(block.N)"
+    )
+    t = age(population)
+    nextID = getnextID(population)
+    nsubclones = getmaxsubclones(block.selection)
     nsubclonescurrent = length(population.subclones)
-    birthrates = getbirthrates(population.subclones)
-    deathrates = getdeathrates(population.subclones)
-    Rmax = maximum(birthrates) + maximum(deathrates)
 
-    while N < Nmax && N > 0
-        Δt = 1 / (Rmax * N) .* timefunc(rng)
-        t + Δt <= tmax || break
+    while !block.stopfunction(population)
+        Rmax = maximum(block.moranrate(sc.s, N) for sc in population.subclones)
+        Δt = exptime(rng) / (Rmax * N)
         t += Δt
 
-        population, birthrates, deathrates, Rmax, N, nextID, nsubclonescurrent, nsubclones =
-            branchingupdate!(
-                population, selection, birthrates, deathrates, Rmax, N, nextID,
-                nsubclonescurrent, nsubclones, t, μ, mutationdist, rng
-            )
+        population, nextID, nsubclonescurrent = _moranupdate!(
+            population, block, Rmax, N, nextID, nsubclonescurrent, nsubclones, t, rng
+        )
     end
-    return population, nextID
+    return population
 end
 
-function branchingupdate!(
-    population::Population,
-    selection,
-    birthrates,
-    deathrates,
-    Rmax,
-    N,
-    nextID,
-    nsubclonescurrent,
-    nsubclones,
-    t,
-    μ,
-    mutationdist,
-    rng
+function _branchingupdate!(
+    population, block, Rmax, N, nextID, nsubclonescurrent, nsubclones, t, rng
 )
     randcellid = rand(rng, 1:N)
     randcell = population.cells[randcellid]
+    cellsubclone = population.subclones[getclonetype(randcell)]
     r = rand(rng, Uniform(0, Rmax))
-    cellsubclone = getclonetype(randcell)
-    br = birthrates[cellsubclone]
-    dr = deathrates[cellsubclone]
+    br = block.birthrate(cellsubclone.s, N)
+    dr = block.deathrate(cellsubclone.s, N)
 
     if r < br
         population, _, nextID = celldivision!(
-            population, population.subclones, randcellid, t, nextID, μ, mutationdist, rng
+            population, population.subclones, randcellid, t, nextID,
+            block.μ, block.mutationdist, rng
         )
         N += 1
-        if newsubclone_ready(selection, nsubclonescurrent, nsubclones, t, rng)
-            newmutant_selectioncoeff =
-                getselectioncoefficient(selection, nsubclonescurrent, rng)
+        if newsubclone_ready(block.selection, nsubclonescurrent, nsubclones, t, rng)
+            s = getselectioncoefficient(block.selection, nsubclonescurrent, rng)
             cellmutation!(
-                population, population.subclones, newmutant_selectioncoeff,
-                population.cells[randcellid], t
+                population, population.subclones, s, population.cells[randcellid], t
             )
             nsubclonescurrent += 1
-            birthrates = getbirthrates(population.subclones)
-            deathrates = getdeathrates(population.subclones)
-            Rmax = maximum(birthrates) + maximum(deathrates)
         end
     elseif r < br + dr
         population, _ = celldeath!(population, population.subclones, randcellid, t)
         N -= 1
     end
     updatetime!(population, t)
-    return population, birthrates, deathrates, Rmax, N, nextID, nsubclonescurrent, nsubclones
+    return population, N, nextID, nsubclonescurrent
 end
 
-"""
-    moranprocess!(population, selection, μ, mutationdist, tmax, nextID, rng;
-        timefunc=exptime, t0=nothing, moranincludeself=true)
-
-Run a Moran process on `population` until `tmax`.
-"""
-function moranprocess!(
-    population::Population,
-    selection,
-    μ,
-    mutationdist,
-    tmax,
-    nextID,
-    rng::AbstractRNG;
-    timefunc=exptime,
-    t0=nothing,
-    moranincludeself=true
-)
-    t = !isnothing(t0) ? t0 : age(population)
-    N = length(allcells(population))
-    nsubclones = getmaxsubclones(selection)
-    nsubclonescurrent = length(population.subclones)
-    moranrates = getmoranrates(population.subclones)
-    Rmax = maximum(moranrates)
-    while true
-        Δt = 1 / (Rmax * N) .* timefunc(rng)
-        t = t + Δt
-        if t > tmax
-            break
-        end
-        population, moranrates, Rmax, N, nextID, nsubclonescurrent = moranupdate!(
-            population, selection, moranrates, Rmax, N, nextID, nsubclonescurrent,
-            nsubclones, t, μ, mutationdist, moranincludeself, rng
-        )
-    end
-    return population, nextID
-end
-
-function moranupdate!(
-    population::Population,
-    selection,
-    moranrates,
-    Rmax,
-    N,
-    nextID,
-    nsubclonescurrent,
-    nsubclones,
-    t,
-    μ,
-    mutationdist,
-    moranincludeself,
-    rng
+function _moranupdate!(
+    population, block, Rmax, N, nextID, nsubclonescurrent, nsubclones, t, rng
 )
     dividecellid = rand(rng, 1:N)
     dividecell = population.cells[dividecellid]
     r = rand(rng, Uniform(0, Rmax))
-    mr = moranrates[getclonetype(dividecell)]
+    mr = block.moranrate(population.subclones[getclonetype(dividecell)].s, N)
+
     if r < mr
-        deadcell = choose_moran_deadcell(N, dividecellid, moranincludeself, rng)
+        deadcellid = _choose_moran_deadcell(N, dividecellid, block.moranincludeself, rng)
         population, _, nextID = celldivision!(
-            population, population.subclones, dividecellid, t, nextID, μ, mutationdist, rng
+            population, population.subclones, dividecellid, t, nextID,
+            block.μ, block.mutationdist, rng
         )
-        if newsubclone_ready(selection, nsubclonescurrent, nsubclones, t, rng)
-            newmutant_selectioncoeff =
-                getselectioncoefficient(selection, nsubclonescurrent, rng)
+        if newsubclone_ready(block.selection, nsubclonescurrent, nsubclones, t, rng)
+            s = getselectioncoefficient(block.selection, nsubclonescurrent, rng)
             cellmutation!(
-                population, population.subclones, newmutant_selectioncoeff,
-                population.cells[dividecellid], t
+                population, population.subclones, s, population.cells[dividecellid], t
             )
             nsubclonescurrent += 1
-            moranrates = getmoranrates(population.subclones)
-            Rmax = maximum(moranrates)
         end
-        population, _ = celldeath!(population, population.subclones, deadcell, t)
+        population, _ = celldeath!(population, population.subclones, deadcellid, t)
     end
     updatetime!(population, t)
-    return population, moranrates, Rmax, N, nextID, nsubclonescurrent
+    return population, nextID, nsubclonescurrent
 end
 
-function choose_moran_deadcell(modulesize, dividecellid, moranincludeself, rng)
+function _choose_moran_deadcell(N, dividecellid, moranincludeself, rng)
     if moranincludeself
-        deadcellid = rand(rng, 1:modulesize)
-        if deadcellid == dividecellid
-            return modulesize + 1
-        else
-            return deadcellid
-        end
+        deadcellid = rand(rng, 1:N)
+        return deadcellid == dividecellid ? N + 1 : deadcellid
     else
-        return rand(rng, deleteat!(collect(1:modulesize), dividecellid))
+        return rand(rng, deleteat!(collect(1:N), dividecellid))
     end
 end
 
 updatetime!(population::Population, t) = (population.t = t)
 
-function discretetime(rng, λ=1)
-    return 1/λ
-end
-
 function exptime(rng::AbstractRNG)
     rand(rng, Exponential(1))
 end
 
-function exptime(rng::AbstractRNG, λ)
-    rand(rng, Exponential(1/λ))
-end
-
 age(population::Population) = population.t
-age(simulation::Simulation) = age(simulation.output)

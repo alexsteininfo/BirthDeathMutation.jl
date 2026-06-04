@@ -5,3 +5,7 @@ CLAUDE.md
 *.jl.*.cov
 *.jl.mem
 /Manifest.toml
+
+# Analysis fodlers
+analysis/
+plots/

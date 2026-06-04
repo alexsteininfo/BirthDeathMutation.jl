@@ -130,19 +130,17 @@ abstract type AbstractTreeCell <: AbstractCell end
     SimpleTreeCell
 
 Represents a single cell that can be the `data` field of a `BinaryNode{SimpleTreeCell}`.
-Dead cells are pruned from the tree structure. Preferred cell representation for lineage
-tracking.
+Dead cells are pruned from the tree structure.
 """
 mutable struct SimpleTreeCell <: AbstractTreeCell
     id::Int64
     birthtime::Float64
-    latestupdatetime::Float64
     mutations::Int64
     clonetype::Int64
 end
 
 function SimpleTreeCell(; id=1, birthtime=0.0, mutations=0, clonetype=1)
-    return SimpleTreeCell(id, birthtime, birthtime, mutations, clonetype)
+    return SimpleTreeCell(id, birthtime, mutations, clonetype)
 end
 
 #endregion
@@ -150,17 +148,15 @@ end
 """
     Subclone
 
-Defines subclone properties, including the `birthrate`, `deathrate`, `moranrate` and
-`asymmetricrate` of cells within the subclone.
+Defines subclone properties. `s` is the selection coefficient used in the block's
+rate functions `b(s, N)` and `d(s, N)` (or `r(s, N)` for Moran blocks).
 """
 @kwdef mutable struct Subclone
     subcloneid::Int64 = 1
     parentid::Int64 = 0
     mutationtime::Float64 = 0.0
     size::Int64 = 1
-    birthrate::Float64 = 1.0
-    deathrate::Float64 = 0.0
-    moranrate::Float64 = 1.0
+    s::Float64 = 0.0
     asymmetricrate::Float64 = 0.0
 end
 

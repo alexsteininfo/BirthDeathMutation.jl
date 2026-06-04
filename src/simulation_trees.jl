@@ -56,20 +56,13 @@ function prune_tree!(cellnode)
 end
 
 """
-    changemutations!(root::BinaryNode, μ, mutationdist, tmax, rng, clonalmutations=0)
+    changemutations!(root::BinaryNode, μ, mutationdist, rng, clonalmutations=0)
 
 Reassign mutations to every node in the phylogeny rooted at `root`.
 """
-function changemutations!(root::BinaryNode, μ, mutationdist, tmax, rng, clonalmutations=0)
-    if mutationdist == :fixedtimedep || mutationdist == :poissontimedep
-        for cellnode in PreOrderDFS(root)
-            Δt = celllifetime(cellnode, tmax)
-            cellnode.data.mutations = numbernewmutations(rng, mutationdist, μ, Δt=Δt)
-        end
-    else
-        for cellnode in PreOrderDFS(root)
-            cellnode.data.mutations = numbernewmutations(rng, mutationdist, μ)
-        end
+function changemutations!(root::BinaryNode, μ, mutationdist, rng, clonalmutations=0)
+    for cellnode in PreOrderDFS(root)
+        cellnode.data.mutations = numbernewmutations(rng, mutationdist, Float64(μ))
     end
     root.data.mutations += clonalmutations
 end

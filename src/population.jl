@@ -39,31 +39,25 @@ end
 Base.firstindex(population::Population) = firstindex(population.cells)
 Base.lastindex(population::Population) = lastindex(population.cells)
 
-function Population(
-    cells,
-    birthrate,
-    deathrate,
-    moranrate,
-    asymmetricrate
-)
+function Population(cells; time::Float64=0.0, s::Float64=0.0, asymmetricrate::Float64=0.0)
     return Population(
         cells,
-        0.0,
+        time,
         Subclone[Subclone(
-            1,
-            0,
-            0.0,
-            length(filter(!isnothing, cells)),
-            birthrate,
-            deathrate,
-            moranrate,
-            asymmetricrate
+            subcloneid=1,
+            parentid=0,
+            mutationtime=0.0,
+            size=length(filter(!isnothing, cells)),
+            s=s,
+            asymmetricrate=asymmetricrate
         )]
     )
 end
 
-function Base.show(io::IO, population::Population)
-    @printf(io, "Population: \n    %d cells", length(allcells(population)))
-    @printf(io, "\n    %d subclones", length(filter(x -> x.size > 0, population.subclones)))
-    @printf(io, " (t = %.2f)", population.t)
+popsize(population::Population) = length(allcells(population))
+
+function Base.show(io::IO, pop::Population)
+    @printf(io, "Population: \n    %d cells", length(allcells(pop)))
+    @printf(io, "\n    %d subclones", length(filter(x -> x.size > 0, pop.subclones)))
+    @printf(io, " (t = %.2f)", pop.t)
 end

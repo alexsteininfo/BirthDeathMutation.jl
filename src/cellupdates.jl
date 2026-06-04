@@ -1,23 +1,18 @@
 """
-    numbernewmutations(rng, mutationdist, μ; Δt=nothing)
+    numbernewmutations(rng, mutationdist, μ)
 
-Generate the number of new mutations for a given mutational process `mutationdist`
-    with mean `μ` (non-time independent, e.g. :fixed, :poisson) or `μΔt` (time dependent,
-    e.g. :poissontimedep).
+Generate the number of new mutations for a given `mutationdist` (:fixed, :poisson,
+or :geometric) with mean `μ`.
 """
-function numbernewmutations(rng, mutationdist, μ; Δt=nothing)
+function numbernewmutations(rng, mutationdist::Symbol, μ::Float64)
     if mutationdist == :fixed
         return round(Int64, μ)
     elseif mutationdist == :poisson
         return rand(rng, Poisson(μ))
     elseif mutationdist == :geometric
-        return rand(rng, Geometric(1/(1+μ)))
-    elseif mutationdist == :poissontimedep
-        return rand(rng, Poisson(μ*Δt))
-    elseif mutationdist == :fixedtimedep
-        return round(Int64, μ*Δt)
+        return rand(rng, Geometric(1 / (1 + μ)))
     else
-        error("$mutationdist is not a valid mutation rule")
+        error("$mutationdist is not a valid mutation distribution. Use :fixed, :poisson, or :geometric.")
     end
 end
 
@@ -25,12 +20,9 @@ end
     celldivision!(population, subclones, parentcellid, t, nextID, μ, mutationdist, rng;
         nchildcells=2)
 
-Cell at `population.cells[parentcellid]` divides. If `nchildcells == 1` it is replaced by a
-single child cell. If `nchildcells == 2` a second child cell is appended to the end of
-`population.cells`. Cell frequencies are updated in `subclones`.
-
-Time-dependent mutations are assigned to the parent node before division; non-time-dependent
-mutations are assigned to the child cells at division.
+Cell at `population.cells[parentcellid]` divides. If `nchildcells == 1` it is replaced
+by a single child; if `nchildcells == 2` a second child is appended. Subclone sizes
+are updated accordingly.
 """
 function celldivision!(
     population::Population,
@@ -38,32 +30,17 @@ function celldivision!(
     parentcellid,
     t,
     nextID,
-    μ,
-    mutationdist,
+    μ::Float64,
+    mutationdist::Symbol,
     rng;
-    nchildcells=2,
-    timedepmutationsonly=false
+    nchildcells=2
 )
     alivecells = population.cells
     parentcellnode = alivecells[parentcellid]
-    childcellmuts = zeros(Int64, nchildcells)
-    for (μ0, mutationdist0) in zip(μ, mutationdist)
-        if mutationdist0 == :fixedtimedep || mutationdist0 == :poissontimedep
-            Δt = t - parentcellnode.data.latestupdatetime
-            parentcellnode.data.mutations += numbernewmutations(
-                rng, mutationdist0, μ0, Δt=Δt
-            )
-            parentcellnode.data.latestupdatetime = t
-        elseif !timedepmutationsonly
-            for i in 1:nchildcells
-                childcellmuts[i] += numbernewmutations(rng, mutationdist0, μ0)
-            end
-        end
-    end
     childcell1 = SimpleTreeCell(
         id=nextID,
         birthtime=t,
-        mutations=childcellmuts[1],
+        mutations=numbernewmutations(rng, mutationdist, μ),
         clonetype=parentcellnode.data.clonetype
     )
     alivecells[parentcellid] = leftchild!(parentcellnode, childcell1)
@@ -71,7 +48,7 @@ function celldivision!(
         childcell2 = SimpleTreeCell(
             id=nextID + 1,
             birthtime=t,
-            mutations=childcellmuts[2],
+            mutations=numbernewmutations(rng, mutationdist, μ),
             clonetype=parentcellnode.data.clonetype
         )
         push!(alivecells, rightchild!(parentcellnode, childcell2))
@@ -81,63 +58,43 @@ function celldivision!(
 end
 
 """
-    cellmutation!(population, subclones, selectioncoefficient, mutatingcell, t)
+    cellmutation!(population, subclones, s, mutatingcell, t)
 
-Cell mutation occurs in `mutatingcell` to produce a new non-neutral subclone with fitness
-equal to `f = 1 + selectioncoefficient`. Birth, moran and asymmetric rates are increased
-by factor `f` from wild-type; death rate is unchanged.
+Cell mutation occurs in `mutatingcell`, creating a new subclone with selection
+coefficient `s`. The mutating cell's clonetype is updated to the new subclone.
 """
-function cellmutation!(population, subclones, selectioncoefficient, mutatingcell, t)
+function cellmutation!(population, subclones, s::Float64, mutatingcell, t)
     subcloneid = length(subclones) + 1
     parentid = getclonetype(mutatingcell)
-    wildtype_rates = getwildtyperates(subclones)
-    birthrate, deathrate, moranrate, asymmetricrate = get_newsubclone_rates(
-        wildtype_rates, selectioncoefficient
-    )
+    parentasymmetricrate = subclones[parentid].asymmetricrate
     newsubclone = Subclone(
-        subcloneid, parentid, t, 1, birthrate, deathrate, moranrate, asymmetricrate
+        subcloneid=subcloneid,
+        parentid=parentid,
+        mutationtime=t,
+        size=1,
+        s=s,
+        asymmetricrate=parentasymmetricrate
     )
     push!(subclones, newsubclone)
     setclonetype!(mutatingcell, subcloneid)
-    if parentid != 0
-        subclones[parentid].size -= 1
-    end
+    subclones[parentid].size -= 1
     return population, subclones
-end
-
-"""
-    get_newsubclone_rates(wildtype, selectioncoefficient)
-
-Compute new birth, death, moran and asymmetric rates for a new subclone. All `wildtype`
-rates are increased by a factor of `(1 + selectioncoefficient)` except death rate.
-"""
-function get_newsubclone_rates(wildtype, selectioncoefficient)
-    return (
-        birthrate = wildtype.birthrate * (1 + selectioncoefficient),
-        deathrate = wildtype.deathrate,
-        moranrate = wildtype.moranrate * (1 + selectioncoefficient),
-        asymmetricrate = wildtype.asymmetricrate * (1 + selectioncoefficient)
-    )
 end
 
 """
     celldeath!(population, subclones, deadcellid, t)
 
-Cell at `population.cells[deadcellid]` dies and is removed. Cell frequencies are updated
-in `subclones`.
+Cell at `population.cells[deadcellid]` dies and is removed from the population.
 """
 function celldeath!(
     population::Population,
     subclones::Vector{Subclone},
     deadcellid,
-    t,
-    μ=nothing,
-    mutationdist=nothing,
-    rng=nothing
+    t
 )
     alivecells = population.cells
     deadcellclonetype = alivecells[deadcellid].data.clonetype
-    killcell!(alivecells, deadcellid, t, μ, mutationdist, rng)
+    killcell!(alivecells, deadcellid, t)
     deleteat!(alivecells, deadcellid)
     subclones[deadcellclonetype].size -= 1
     return population, subclones
@@ -145,7 +102,6 @@ end
 
 """
     getnextID(population)
-    getnextID(cells)
 
 Get the next usable cell ID.
 """
@@ -156,30 +112,11 @@ end
 function getnextID(cells::Vector{BinaryNode{SimpleTreeCell}})
     nextID = 1
     for cellnode in cells
-        if isnothing(cellnode) continue end
-        if id(cellnode) + 1 > nextID
+        if !isnothing(cellnode) && id(cellnode) + 1 > nextID
             nextID = id(cellnode) + 1
         end
     end
     return nextID
-end
-
-getbirthrates(subclones) = Float64[subclone.birthrate for subclone in subclones]
-getdeathrates(subclones) = Float64[subclone.deathrate for subclone in subclones]
-getmoranrates(subclones) = Float64[subclone.moranrate for subclone in subclones]
-getasymmetricrates(subclones) = Float64[subclone.asymmetricrate for subclone in subclones]
-
-function getwildtyperates(population::AbstractPopulation)
-    return getwildtyperates(population.subclones)
-end
-
-function getwildtyperates(subclones::Vector{Subclone})
-    return (
-        birthrate = subclones[1].birthrate,
-        deathrate = subclones[1].deathrate,
-        moranrate = subclones[1].moranrate,
-        asymmetricrate = subclones[1].asymmetricrate
-    )
 end
 
 initialize_counters(population::Population) = getnextID(population)

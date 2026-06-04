@@ -18,43 +18,41 @@ end
     rng = MersenneTwister(12)
 
     @testset "division" begin
-        input = BranchingInput(clonalmutations=0, Nmax=10, birthrate=1, deathrate=0)
-        population = initialize_population(input)
-        subclones = population.subclones
-        root = getsingleroot(allcells(population))
-        population, subclones, nextID = BirthDeathMutation.celldivision!(
-            population, subclones, 1, 1.1, 2, [10], [:fixedtimedep], rng
+        pop = initialize_population(1)
+        subclones = pop.subclones
+        root = getsingleroot(allcells(pop))
+        pop, subclones, nextID = BirthDeathMutation.celldivision!(
+            pop, subclones, 1, 1.1, 2, 1.0, :fixed, rng
         )
         @test nextID == 4
-        @test length(allcells(population)) == 2
-        @test !(root in allcells(population))
-        @test root.data.mutations == 11
-        for (i, cellnode) in enumerate(allcells(population))
+        @test length(allcells(pop)) == 2
+        @test !(root in allcells(pop))
+        @test root.data.mutations == 0  # parent gets no mutations with :fixed μ=1 in children
+        for (i, cellnode) in enumerate(allcells(pop))
             @test cellnode.parent == root
             @test cellnode.data.birthtime ≈ 1.1 atol=0.001
-            @test cellnode.data.mutations == 0
+            @test cellnode.data.mutations == 1  # :fixed, μ=1
             @test cellnode.data.clonetype == root.data.clonetype
             @test cellnode.data.id == i + 1
         end
         BirthDeathMutation.celldivision!(
-            population, subclones, 2, 1.1, 3, [10], [:fixedtimedep], rng; nchildcells=1
+            pop, subclones, 2, 1.1, 3, 0.0, :fixed, rng; nchildcells=1
         )
-        @test length(allcells(population)) == 2
-        @test !(root in allcells(population))
-        @test population.cells[end] == root.right.left
+        @test length(allcells(pop)) == 2
+        @test !(root in allcells(pop))
+        @test pop.cells[end] == root.right.left
         @test isnothing(root.right.right)
-        @test population.cells[end].data.id == 3
+        @test pop.cells[end].data.id == 3
     end
 
-    @testset "death simple" begin
-        input = BranchingInput(clonalmutations=0, Nmax=1, birthrate=1, deathrate=0)
-        population = initialize_population(input)
-        subclones = population.subclones
-        population, subclones, _ = BirthDeathMutation.celldivision!(
-            population, subclones, 1, 1.1, 2, [10], [:fixedtimedep], rng
+    @testset "death" begin
+        pop = initialize_population(1)
+        subclones = pop.subclones
+        pop, subclones, _ = BirthDeathMutation.celldivision!(
+            pop, subclones, 1, 1.1, 2, 0.0, :fixed, rng
         )
         @test length(subclones[1]) == 2
-        BirthDeathMutation.cellmutation!(population, subclones, 0.5, population.cells[1], 1.1)
+        BirthDeathMutation.cellmutation!(pop, subclones, 0.5, pop.cells[1], 1.1)
         @test length(subclones) == 2
         @test length(subclones[1]) == 1
         @test length(subclones[2]) == 1
@@ -62,53 +60,28 @@ end
         @test subclones[2].parentid == 1
         @test subclones[2].mutationtime == 1.1
         @test subclones[2].size == 1
-        @test subclones[2].birthrate == 1.5
-        @test subclones[2].deathrate == 0.0
-        @test subclones[2].moranrate == 0.0
-        @test subclones[2].asymmetricrate == 0.0
+        @test subclones[2].s == 0.5
 
-        BirthDeathMutation.celldeath!(population, subclones, 1, 1.5, [10], [:fixedtimedep], rng)
-        @test length(allcells(population)) == 1
+        BirthDeathMutation.celldeath!(pop, subclones, 1, 1.5)
+        @test length(allcells(pop)) == 1
         BirthDeathMutation.celldivision!(
-            population, subclones, 1, 1.1, 2, [10], [:fixedtimedep], rng
+            pop, subclones, 1, 1.1, 2, 0.0, :fixed, rng
         )
         idx = 2
-        deadcellnode = population.cells[idx]
-        BirthDeathMutation.celldeath!(population, subclones, idx, 2.0, [10], [:fixedtimedep], rng)
-        @test !(deadcellnode in allcells(population))
+        deadcellnode = pop.cells[idx]
+        BirthDeathMutation.celldeath!(pop, subclones, idx, 2.0)
+        @test !(deadcellnode in allcells(pop))
     end
 
     @testset "mutations" begin
-        input = BranchingInput(
-            clonalmutations=0,
-            Nmax=1,
-            birthrate=1,
-            deathrate=0,
-            μ=[1, 3],
-            mutationdist=[:fixed, :fixedtimedep]
+        pop = initialize_population(1)
+        subclones = pop.subclones
+        @test pop.cells[1].data.mutations == 0
+        pop, subclones, _ = BirthDeathMutation.celldivision!(
+            pop, subclones, 1, 1.0, 2, 3.0, :fixed, rng
         )
-        population = initialize_population(input)
-        subclones = population.subclones
-        @test population.cells[1].data.mutations == 0
-        population, subclones, _ = BirthDeathMutation.celldivision!(
-            population, subclones, 1, 1.0, 2, input.μ, input.mutationdist, rng
-        )
-        @test population.cells[1].data.mutations == 1
-        @test population.cells[2].data.mutations == 1
-        @test population.cells[1].parent.data.mutations == 3
-        population, subclones, _ = BirthDeathMutation.celldivision!(
-            population, subclones, 1, 3.0, 4, input.μ, input.mutationdist, rng
-        )
-        @test population.cells[1].data.mutations == 1
-        @test population.cells[2].data.mutations == 1
-        @test population.cells[3].data.mutations == 1
-        @test population.cells[1].parent.data.mutations == 7
-        BirthDeathMutation.final_timedep_mutations!(
-            population, input.μ, input.mutationdist, rng; tend=4.0
-        )
-        @test population.cells[1].data.mutations == 4
-        @test population.cells[2].data.mutations == 10
-        @test population.cells[3].data.mutations == 4
+        @test pop.cells[1].data.mutations == 3
+        @test pop.cells[2].data.mutations == 3
     end
 end
 
@@ -136,8 +109,6 @@ end
     @test mutations_per_cell(root, includeclonal=true) == [18, 22, 10]
     @test celllifetimes(root, excludeliving=true) ≈ [1.53555, 0.15643] atol=0.01
     @test celllifetimes(root, excludeliving=false) ≈ [1.53555, 0.15643, 0.0, 0.0, 0.15643] atol=0.01
-    @test time_to_MRCA(root.left.left, root.right, 2.0) ≈ 2.0 - 1.5355542835848743
-    @test time_to_MRCA(root.left.left, root.left.right, 2.0) ≈ 2.0 - 1.6919799338516708
     @test coalescence_times(root) ≈ [0.0, 1.6919799338516708 - 1.5355542835848743, 1.6919799338516708 - 1.5355542835848743]
     @test pairwisedistance(root.left.left, root.right) == 28
     @test pairwisedistance(root.left.left, root.left.right) == 30
@@ -167,82 +138,62 @@ end
     @test findMRCA(root.left.left, root.right) == root
 end
 
-@testset "updates" begin
-    rng = MersenneTwister(12)
-    t2 = make_tree2()
-    cells = Vector{Union{BinaryNode{SimpleTreeCell}, Nothing}}(
-        [cellnode for cellnode in Leaves(t2)]
+@testset "selection tree simulate!" begin
+    rng = MersenneTwister(100)
+    Nmax = 10
+    block = BirthDeathBlock(
+        birthrate    = (s, N) -> 1.0 * (1 + s),
+        deathrate    = (s, N) -> 0.0,
+        stopfunction = pop -> popsize(pop) >= Nmax,
+        selection    = SelectionPredefined([0.5], [0.5]),
+        μ = 1.0,
+        mutationdist = :poisson,
     )
-    population = Population(deepcopy(cells), 1.0, 0.1, 1.0, 0.1)
-    BirthDeathMutation.celldivision!(population, population.subclones, 1, 3.5, 3, [1], [:fixed], rng)
-    @test length(allcells(population)) == 3
-    @test getsubclonesizes(population) == [3]
-    BirthDeathMutation.cellmutation!(population, population.subclones, 0.5, population.cells[1], 3.5)
-    @test getclonetype(population.cells[1]) == 2
-    @test length(population.subclones) == 2
-    @test population.subclones[2].birthrate ≈ 1.5
-    @test population.subclones[2].deathrate ≈ 0.1
-    @test population.subclones[2].moranrate ≈ 1.5
-    @test population.subclones[2].asymmetricrate ≈ 0.15
-    @test getsubclonesizes(population) == [2, 1]
-    n = length(allcells(population))
-    BirthDeathMutation.moranupdate!(
-        population,
-        SelectionPredefined([3.5], [0.5]),
-        BirthDeathMutation.getmoranrates(population.subclones),
-        maximum(BirthDeathMutation.getmoranrates(population.subclones)),
-        n, 7, 2, 2, 4.0, [1], [:fixed], false, rng
+    pop = initialize_population(1)
+    pop = simulate!(pop, block, rng)
+    @test length(allcells(pop)) == Nmax
+    @test sum(getsubclonesizes(pop)) == Nmax
+    @test getsubclonesizes(pop) == counts(getclonetype.(allcells(pop)), 1:length(pop.subclones))
+
+    rng = MersenneTwister(100)
+    tmax = 10.0
+    N = 10
+    moran = MoranBlock(
+        N            = N,
+        moranrate    = (s, N) -> 1.0 * (1 + s),
+        stopfunction = pop -> age(pop) >= tmax,
+        μ = 1.0,
+        mutationdist = :poisson,
     )
-    @test length(allcells(population)) == n
+    pop = initialize_population(N)
+    pop = simulate!(pop, moran, rng)
+    @test length(allcells(pop)) == N
+
+    # Two selection events in a BirthDeathBlock
+    rng = MersenneTwister(100)
+    Nmax = 20
+    sel = SelectionPredefined([0.5, 1.0], [0.1, 2.0])
+    block2 = BirthDeathBlock(
+        birthrate    = (s, N) -> 10.0 * (1 + s),
+        deathrate    = (s, N) -> 0.0,
+        stopfunction = pop -> popsize(pop) >= Nmax,
+        selection    = sel,
+        μ = 1.0,
+        mutationdist = :poisson,
+    )
+    pop = initialize_population(1)
+    pop = simulate!(pop, block2, rng)
+    @test length(allcells(pop)) == Nmax
+    @test sum(getsubclonesizes(pop)) == Nmax
+    # mutant must appear at or after the specified time
+    @test pop.subclones[2].mutationtime >= sel.mutant_time[1]
 end
 
-@testset "selection tree runsimulation" begin
-    rng = MersenneTwister(100)
-    input = BranchingInput(
-        Nmax=10,
-        mutationdist=:poisson,
-        birthrate=1,
-        deathrate=0.0,
-        clonalmutations=0,
-        μ=1,
-    )
-    selection = SelectionPredefined([0.5], [3])
-    simulation = runsimulation(input, selection, rng)
-    @test length(allcells(simulation.output)) == 10
-    @test sum(getsubclonesizes(simulation)) == 10
-    @test getsubclonesizes(simulation) == counts(getclonetype.(allcells(simulation.output)), 1:length(simulation.output.subclones))
-
-    tmax = 10
-    input = MoranInput(
-        N=10,
-        tmax=tmax,
-        mutationdist=:poisson,
-        moranrate=1.0,
-        clonalmutations=0,
-        μ=1
-    )
-    simulation = runsimulation(input, rng)
-    @test length(allcells(simulation.output)) == 10
-    @test age(simulation) == simulation.output.t
-    @test age(simulation) <= tmax
-
-    tmax = 10
-    input = BranchingMoranInput(
-        Nmax=10,
-        tmax=tmax,
-        mutationdist=:poisson,
-        birthrate=10,
-        deathrate=0.0,
-        clonalmutations=0,
-        μ=1
-    )
-    selection = SelectionPredefined([0.5, 1.0], [0.1, 8])
-    simulation = runsimulation(input, selection, rng)
-    @test length(allcells(simulation.output)) == 10
-    @test sum(getsubclonesizes(simulation)) == 10
-    subclone_by_cell = getclonetype.(allcells(simulation.output))
-    @test getsubclonesizes(simulation) == counts(subclone_by_cell, 1:length(simulation.output.subclones))
-    @test age(simulation) <= tmax
-    @test simulation.output.subclones[2].mutationtime ≈ 0.1 atol=0.1
-    @test simulation.output.subclones[3].mutationtime ≈ 8 atol=1
+@testset "changemutations!" begin
+    rng = MersenneTwister(12)
+    root = make_tree()
+    BirthDeathMutation.changemutations!(root, 2, :fixed, rng)
+    for cellnode in AbstractTrees.PreOrderDFS(root)
+        @test cellnode.data.mutations == 2
+    end
 end

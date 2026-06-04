@@ -1,129 +1,133 @@
-@testset "neutral runsimulation" begin
+@testset "neutral simulate! BirthDeathBlock" begin
     rng = MersenneTwister(100)
-    input = BranchingInput(
-        Nmax=10,
-        mutationdist=:poisson,
-        birthrate=1,
-        deathrate=0.0,
-        clonalmutations=0,
-        μ=1
+    Nmax = 10
+    block = BirthDeathBlock(
+        birthrate    = (s, N) -> 1.0 * (1 + s),
+        deathrate    = (s, N) -> 0.0,
+        stopfunction = pop -> popsize(pop) >= Nmax,
+        μ = 1.0,
+        mutationdist = :poisson,
     )
-    simulation = runsimulation(input, rng)
-    @test length(allcells(simulation.output)) == 10
-
-    tmax = 10
-    input = MoranInput(
-        N=10,
-        tmax=tmax,
-        mutationdist=:poisson,
-        moranrate=1.0,
-        clonalmutations=0,
-        μ=1
-    )
-    simulation = runsimulation(input, rng)
-    @test length(allcells(simulation.output)) == 10
-    @test age(simulation) == simulation.output.t
-    @test age(simulation) <= tmax
-
-    tmax = 10
-    input = BranchingMoranInput(
-        Nmax=10,
-        tmax=tmax,
-        mutationdist=:poisson,
-        birthrate=1,
-        deathrate=0.0,
-        clonalmutations=0,
-        μ=1
-    )
-    simulation = runsimulation(input, rng)
-    @test length(allcells(simulation.output)) == 10
-    @test age(simulation) <= tmax
+    pop = initialize_population(1)
+    pop = simulate!(pop, block, rng)
+    @test length(allcells(pop)) == Nmax
 end
 
-@testset "updates" begin
-    rng = MersenneTwister(12)
-    cells = Vector{Union{BinaryNode{SimpleTreeCell}, Nothing}}([
-        BinaryNode(SimpleTreeCell(id=1, birthtime=0.3, mutations=0, clonetype=1)),
-        BinaryNode(SimpleTreeCell(id=2, birthtime=0.3, mutations=0, clonetype=1)),
-        BinaryNode(SimpleTreeCell(id=3, birthtime=0.4, mutations=0, clonetype=1)),
+@testset "neutral simulate! MoranBlock" begin
+    rng = MersenneTwister(100)
+    tmax = 10.0
+    N = 10
+    moran = MoranBlock(
+        N            = N,
+        moranrate    = (s, N) -> 1.0 * (1 + s),
+        stopfunction = pop -> age(pop) >= tmax,
+        μ = 1.0,
+        mutationdist = :poisson,
+    )
+    pop = initialize_population(N)
+    pop = simulate!(pop, moran, rng)
+    @test length(allcells(pop)) == N
+    @test age(pop) <= tmax + 1.0  # may slightly exceed tmax in last step
+end
+
+@testset "chained blocks" begin
+    rng = MersenneTwister(42)
+    Nmax = 20
+    tmax = 5.0
+
+    b1 = BirthDeathBlock(
+        birthrate    = (s, N) -> 1.0 * (1 + s),
+        deathrate    = (s, N) -> 0.0,
+        stopfunction = pop -> popsize(pop) >= Nmax,
+        μ = 1.0,
+        mutationdist = :poisson,
+    )
+    b2 = MoranBlock(
+        N            = Nmax,
+        moranrate    = (s, N) -> 1.0 * (1 + s),
+        stopfunction = pop -> age(pop) >= tmax,
+        μ = 1.0,
+        mutationdist = :poisson,
+    )
+
+    pop = initialize_population(1)
+    t_after_b1 = let pop = simulate!(pop, b1, rng); age(pop) end
+    pop = initialize_population(1)
+    pop = simulate!(pop, b1, rng)
+    @test length(allcells(pop)) == Nmax
+    t_mid = age(pop)
+
+    pop = simulate!(pop, b2, rng)
+    @test length(allcells(pop)) == Nmax
+    @test age(pop) >= t_mid  # time is monotonically increasing
+end
+
+@testset "selection simulate! BirthDeathBlock" begin
+    rng = MersenneTwister(100)
+    Nmax = 20
+    block = BirthDeathBlock(
+        birthrate    = (s, N) -> 1.0 * (1 + s),
+        deathrate    = (s, N) -> 0.0,
+        stopfunction = pop -> popsize(pop) >= Nmax,
+        selection    = SelectionPredefined([0.5], [0.5]),
+        μ = 1.0,
+        mutationdist = :poisson,
+    )
+    pop = initialize_population(1)
+    pop = simulate!(pop, block, rng)
+    @test length(allcells(pop)) == Nmax
+    @test sum(getsubclonesizes(pop)) == Nmax
+    @test getsubclonesizes(pop) == counts(getclonetype.(allcells(pop)), 1:length(pop.subclones))
+end
+
+@testset "clone-spec initialization" begin
+    pop = initialize_population([
+        (n=9, s=0.0, mutations=50),
+        (n=1, s=0.1, mutations=55),
     ])
-    population = Population(cells, 1.0, 0.1, 1.0, 0.1)
-    BirthDeathMutation.celldivision!(population, population.subclones, 1, 0.5, 5, [1], [:fixed], rng)
-    @test length(allcells(population)) == 4
-    @test getsubclonesizes(population) == [4]
-    BirthDeathMutation.cellmutation!(population, population.subclones, 0.5, population.cells[1], 0.5)
-    @test getclonetype(population.cells[1]) == 2
-    @test length(population.subclones) == 2
-    @test population.subclones[2].birthrate ≈ 1.5
-    @test population.subclones[2].deathrate ≈ 0.1
-    @test population.subclones[2].moranrate ≈ 1.5
-    @test population.subclones[2].asymmetricrate ≈ 0.15
-    @test getsubclonesizes(population) == [3, 1]
-    n = length(allcells(population))
-    BirthDeathMutation.moranupdate!(
-        population,
-        SelectionPredefined(Float64[0.5], Float64[0.5]),
-        BirthDeathMutation.getmoranrates(population.subclones),
-        maximum(BirthDeathMutation.getmoranrates(population.subclones)),
-        n, 7, 2, 2, 0.51, [1], [:fixed], false, rng
-    )
-    @test length(allcells(population)) == n
+    @test length(allcells(pop)) == 10
+    @test length(pop.subclones) == 2
+    @test pop.subclones[1].s == 0.0
+    @test pop.subclones[2].s == 0.1
+    @test pop.subclones[1].size == 9
+    @test pop.subclones[2].size == 1
+    wt_muts = [allcells(pop)[i].data.mutations for i in 1:9]
+    @test all(wt_muts .== 50)
+    fit_cell = allcells(pop)[10]
+    @test fit_cell.data.mutations == 55
+    @test fit_cell.data.clonetype == 2
 end
 
-@testset "rates" begin
-    subclone = Subclone(1, 0, 0.0, 1, 2.0, 1.0, 1.0, 2.0)
-    @test BirthDeathMutation.getwildtyperates([subclone]) == (birthrate=2.0, deathrate=1.0, moranrate=1.0, asymmetricrate=2.0)
-    newrates = BirthDeathMutation.get_newsubclone_rates(BirthDeathMutation.getwildtyperates([subclone]), 0.5)
-    @test newrates == (birthrate=3.0, deathrate=1.0, moranrate=1.5, asymmetricrate=3.0)
+@testset "population size mismatch error" begin
+    rng = MersenneTwister(1)
+    moran = MoranBlock(
+        N            = 5,
+        moranrate    = (s, N) -> 1.0,
+        stopfunction = pop -> age(pop) >= 1.0,
+    )
+    pop = initialize_population(10)  # wrong size
+    @test_throws ErrorException simulate!(pop, moran, rng)
 end
 
-@testset "selection runsimulation" begin
-    rng = MersenneTwister(100)
-    input = BranchingInput(
-        Nmax=10,
-        mutationdist=:poisson,
-        birthrate=1,
-        deathrate=0.0,
-        clonalmutations=0,
-        μ=1
+@testset "restart_on_extinction" begin
+    # Default is false
+    block_default = BirthDeathBlock(
+        birthrate    = (s, N) -> 1.0,
+        deathrate    = (s, N) -> 0.5,
+        stopfunction = pop -> popsize(pop) >= 5,
     )
-    selection = SelectionPredefined([0.5], [3])
-    simulation = runsimulation(input, selection, rng)
-    @test length(allcells(simulation.output)) == 10
-    @test sum(getsubclonesizes(simulation)) == 10
-    @test getsubclonesizes(simulation) == counts(getclonetype.(allcells(simulation.output)), 1:length(simulation.output.subclones))
+    @test block_default.restart_on_extinction == false
 
-    tmax = 10
-    input = MoranInput(
-        N=10,
-        tmax=tmax,
-        mutationdist=:poisson,
-        moranrate=1.0,
-        clonalmutations=0,
-        μ=1
+    # With restart=true and net-positive dynamics, always reaches target
+    rng = MersenneTwister(99)
+    block = BirthDeathBlock(
+        birthrate             = (s, N) -> 1.0,
+        deathrate             = (s, N) -> 0.5,
+        stopfunction          = pop -> popsize(pop) >= 10,
+        restart_on_extinction = true,
     )
-    simulation = runsimulation(input, rng)
-    @test length(allcells(simulation.output)) == 10
-    @test age(simulation) == simulation.output.t
-    @test age(simulation) <= tmax
-
-    tmax = 10
-    input = BranchingMoranInput(
-        Nmax=10,
-        tmax=tmax,
-        mutationdist=:poisson,
-        birthrate=10,
-        deathrate=0.0,
-        clonalmutations=0,
-        μ=1
-    )
-    selection = SelectionPredefined([0.5, 1.0], [0.1, 7.0])
-    simulation = runsimulation(input, selection, rng)
-    @test length(allcells(simulation.output)) == 10
-    @test sum(getsubclonesizes(simulation)) == 10
-    subclone_by_cell = getclonetype.(allcells(simulation.output))
-    @test getsubclonesizes(simulation) == counts(subclone_by_cell, 1:length(simulation.output.subclones))
-    @test age(simulation) <= tmax
-    @test simulation.output.subclones[2].mutationtime ≈ 0.1 atol=0.1
-    @test simulation.output.subclones[3].mutationtime ≈ 7.0 atol=1
+    pop = initialize_population(1)
+    pop = simulate!(pop, block, rng)
+    @test popsize(pop) >= 10
+    @test age(pop) >= 0.0
 end

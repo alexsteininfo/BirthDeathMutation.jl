@@ -4,88 +4,64 @@ using Distributions
 using Statistics
 using Random
 using StatsBase
-using DataFrames
-using GLM
 using Printf
-using CSV
-using JSON
-using DelimitedFiles
 using AbstractTrees
-using MakieCore
 
 export
+# Block types
+BirthDeathBlock,
+MoranBlock,
+
+# Cell and tree types
 SimpleTreeCell,
 BinaryNode,
 Subclone,
-SimulationInput,
-BranchingMoranInput,
-BranchingInput,
-MoranInput,
-Simulation,
-SampledData,
+
+# Population
 Population,
+
+# Selection
 AbstractSelection,
+NeutralSelection,
 SelectionPredefined,
 SelectionDistribution,
-NeutralSelection,
 
-#functions for running simulations
-runsimulation,
-runsimulation_timeseries,
-runsimulation_timeseries_returnfinalpop,
-allcells,
+# Simulation entry point
+simulate!,
 initialize_population,
-getsubclonesizes,
 
-#statistics (tree-based)
-pairwisedistance,
-pairwisedistances,
-pairwise_differences,
-pairwise_fixed_differences,
-pairwise_fixed_differences_matrix,
-pairwise_fixed_differences_statistics,
-pairwise_fixed_differences_clonal,
-average_mutations,
-mutations_per_cell,
-clonal_mutations,
-age,
-
-#functions for tree cells
+# Tree utilities
+allcells,
+getalivecells,
+popsize,   # works on both BinaryNode and Population
+getsingleroot,
+findMRCA,
+getclonetype,
+leftchild!,
+rightchild!,
 endtime,
 celllifetime,
 celllifetimes,
-getalivecells,
-leftchild!,
-rightchild!,
-time_to_MRCA,
+age,
+
+# Statistics
+pairwisedistance,
+pairwisedistances,
+pairwise_differences,
+average_mutations,
+mutations_per_cell,
+clonal_mutations,
 coalescence_times,
-getsingleroot,
-popsize,
-findMRCA,
+getsubclonesizes
 
-#other
-getclonetype,
-
-#util
-newinput,
-saveinput,
-get_simulation,
-loadinput
-
-include("input.jl")
 include("selection.jl")
 include("cells_modules.jl")
 include("population.jl")
-include("results.jl")
+include("blocks.jl")
 include("initialisation.jl")
 include("cellupdates.jl")
 include("simulations.jl")
-include("run.jl")
-include("process.jl")
-include("util.jl")
-include("statistics.jl")
-include("io.jl")
 include("simulation_trees.jl")
-
+include("statistics.jl")
 
 end
