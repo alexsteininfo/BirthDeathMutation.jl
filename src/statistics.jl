@@ -193,3 +193,28 @@ end
 
 getsubclonesizes(subclones::Vector{Subclone}) = map(x -> length(x), subclones)
 getsubclonesizes(population::AbstractPopulation) = getsubclonesizes(population.subclones)
+
+"""
+    sitefrequencyspectrum(population::Population) -> Vector{Int64}
+
+Compute the site-frequency spectrum from the neutral mutation tree.
+`sfs[k]` = number of neutral mutations present in exactly `k` alive cells.
+"""
+function sitefrequencyspectrum(population::Population)
+    sfs  = zeros(Int64, popsize(population))
+    root = getsingleroot(allcells(population))
+    _sfs_fill!(root, sfs)
+    return sfs
+end
+
+function _sfs_fill!(node::BinaryNode, sfs::Vector{Int64})
+    if isnothing(node.left) && isnothing(node.right)
+        sfs[1] += node.data.mutations
+        return 1
+    end
+    count = 0
+    isnothing(node.left)  || (count += _sfs_fill!(node.left,  sfs))
+    isnothing(node.right) || (count += _sfs_fill!(node.right, sfs))
+    count > 0 && (sfs[count] += node.data.mutations)
+    return count
+end

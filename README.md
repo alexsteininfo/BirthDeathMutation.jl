@@ -66,6 +66,8 @@ Selection is specified per block via the `selection` keyword:
 The selection coefficient `s` is stored on each `Subclone` and passed directly to the
 block's rate functions, so the user controls how fitness enters the dynamics.
 
+> **Note:** This package is designed for small driver mutation probabilities (ν ≲ 0.1). At high ν, each division can spawn many new subclones, causing the internal subclone list to grow proportionally to the population size and making the Gillespie loop O(N) per step instead of O(subclones). For high-ν, mutation-load-focused simulations are better (in development in a different package).
+
 ### Initial conditions
 
 ```julia

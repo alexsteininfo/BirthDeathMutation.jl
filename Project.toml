@@ -1,11 +1,12 @@
 name = "BirthDeathMutation"
 uuid = "7b855ee6-6887-412f-a571-26d20a5a92d7"
+version = "0.3.0"
 authors = ["Jessie Renton <jsr.renton@gmail.com> and contributors"]
-version = "0.2.1"
 
 [deps]
 AbstractTrees = "1520ce14-60c1-5f80-bbc7-55ef81b5835c"
 CSV = "336ed68f-0bac-5ca0-87d4-7b16caf5d00b"
+CairoMakie = "13f3f980-e62b-5c42-98c6-ff1f3baf88f0"
 DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
 DelimitedFiles = "8bb1440f-4735-579b-a4ab-409b98df4dab"
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
@@ -21,6 +22,7 @@ StatsBase = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
 [compat]
 AbstractTrees = "0.4"
 CSV = "0.10"
+CairoMakie = "0.15.11"
 DataFrames = "1"
 Distributions = "0.24, 0.25"
 GLM = "1"

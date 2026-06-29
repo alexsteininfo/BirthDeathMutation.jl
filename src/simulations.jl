@@ -15,7 +15,8 @@ function simulate! end
 function simulate!(
     population::Population,
     block::BirthDeathBlock,
-    rng::AbstractRNG=Random.GLOBAL_RNG
+    rng::AbstractRNG=Random.GLOBAL_RNG;
+    accumulator::Union{MeasurementAccumulator, Nothing}=nothing
 )
     if block.restart_on_extinction
         initial_cells     = deepcopy(population.cells)
@@ -30,6 +31,8 @@ function simulate!(
         nsubclones        = getmaxsubclones(block.selection)
         nsubclonescurrent = length(population.subclones)
 
+        isnothing(accumulator) || record_trajectory_if_due!(accumulator, population, t, N)
+
         while !block.stopfunction(population) && N > 0
             Rmax = maximum(
                 block.birthrate(sc.s, N) + block.deathrate(sc.s, N)
@@ -40,23 +43,30 @@ function simulate!(
             population, N, nextID, nsubclonescurrent = _branchingupdate!(
                 population, block, Rmax, N, nextID, nsubclonescurrent, nsubclones, t, rng
             )
+            if !isnothing(accumulator)
+                record_trajectory_if_due!(accumulator, population, t, N)
+                check_timed_triggers!(accumulator, population, t, N)
+            end
         end
 
         if N == 0 && block.restart_on_extinction
             population.cells     = deepcopy(initial_cells)
             population.t         = initial_t
             population.subclones = deepcopy(initial_subclones)
+            isnothing(accumulator) || _reset_accumulator!(accumulator)
         else
             break
         end
     end
+    isnothing(accumulator) || _fire_end_triggers!(accumulator, population)
     return population
 end
 
 function simulate!(
     population::Population,
     block::MoranBlock,
-    rng::AbstractRNG=Random.GLOBAL_RNG
+    rng::AbstractRNG=Random.GLOBAL_RNG;
+    accumulator::Union{MeasurementAccumulator, Nothing}=nothing
 )
     N = length(allcells(population))
     N == block.N || error(
@@ -67,6 +77,8 @@ function simulate!(
     nsubclones = getmaxsubclones(block.selection)
     nsubclonescurrent = length(population.subclones)
 
+    isnothing(accumulator) || record_trajectory_if_due!(accumulator, population, t, N)
+
     while !block.stopfunction(population)
         Rmax = maximum(block.moranrate(sc.s, N) for sc in population.subclones)
         Δt = exptime(rng) / (Rmax * N)
@@ -75,7 +87,12 @@ function simulate!(
         population, nextID, nsubclonescurrent = _moranupdate!(
             population, block, Rmax, N, nextID, nsubclonescurrent, nsubclones, t, rng
         )
+        if !isnothing(accumulator)
+            record_trajectory_if_due!(accumulator, population, t, N)
+            check_timed_triggers!(accumulator, population, t, N)
+        end
     end
+    isnothing(accumulator) || _fire_end_triggers!(accumulator, population)
     return population
 end
 
@@ -95,11 +112,11 @@ function _branchingupdate!(
             block.μ, block.mutationdist, rng
         )
         N += 1
-        if newsubclone_ready(block.selection, nsubclonescurrent, nsubclones, t, rng)
-            s = getselectioncoefficient(block.selection, nsubclonescurrent, rng)
-            cellmutation!(
-                population, population.subclones, s, population.cells[randcellid], t
-            )
+        for daughter_cell in (population.cells[randcellid], population.cells[end])
+            newsubclone_ready(block.selection, nsubclonescurrent, nsubclones, t, rng) || continue
+            parent_s = population.subclones[getclonetype(daughter_cell)].s
+            s = getselectioncoefficient(block.selection, nsubclonescurrent, rng; parent_s=parent_s)
+            cellmutation!(population, population.subclones, s, daughter_cell, t)
             nsubclonescurrent += 1
         end
     elseif r < br + dr

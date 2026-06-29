@@ -25,6 +25,8 @@ AbstractSelection,
 NeutralSelection,
 SelectionPredefined,
 SelectionDistribution,
+SelectionAccumulative,
+SelectionMaxRandom,
 
 # Simulation entry point
 simulate!,
@@ -52,7 +54,24 @@ average_mutations,
 mutations_per_cell,
 clonal_mutations,
 coalescence_times,
-getsubclonesizes
+getsubclonesizes,
+sitefrequencyspectrum,
+
+# Measurements
+MeasurementSpec,
+MeasurementAccumulator,
+Measurements,
+TrajectoryPoint,
+SnapshotData,
+finalize_measurements,
+AbstractTrigger,
+AtEnd,
+AtTime,
+AtPopSize,
+AbstractStatistic,
+SFS,
+CloneSizes,
+NeutralMutPerCell
 
 include("selection.jl")
 include("cells_modules.jl")
@@ -60,8 +79,9 @@ include("population.jl")
 include("blocks.jl")
 include("initialisation.jl")
 include("cellupdates.jl")
-include("simulations.jl")
 include("simulation_trees.jl")
 include("statistics.jl")
+include("measurements.jl")
+include("simulations.jl")
 
 end
