@@ -1,6 +1,6 @@
 # BirthDeathMutation
 
-Julia package for simulating single-population somatic evolution with full lineage tracking.
+Julia package for simulating somatic evolution with full lineage tracking.
 
 This project started from [SomaticEvolution.jl](https://github.com/jessierenton/SomaticEvolution.jl) but has been substantially simplified: it supports only `SimpleTreeCell` (tree-based lineage tracking), uses a composable **block** API instead of monolithic input types, and removes multilevel dynamics, VAF analysis, and time-series wrappers.
 
